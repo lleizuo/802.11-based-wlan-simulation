@@ -63,7 +63,7 @@ class DLL:
             print("Time:" + str(temp.time) + " Type:" + str(temp.type) + " Source:" + str(temp.src) + " Destination:" + str(temp.dest))
             temp = temp.next
 
-        print("Time:" + str(temp.time) + " Type:" + str(temp.type))
+        print("Time:" + str(temp.time) + " Type:" + str(temp.type) + " Source:" + str(temp.src) + " Destination:" + str(temp.dest))
         # while temp is not None:
         #     print("Time:" + str(temp.time) + " Type:" + str(temp.type))
         #     temp = temp.prev
@@ -97,18 +97,37 @@ class Host:
         self.host_buffer = host_buffer
 
 
+def nedt(rate):  # negative exponentially distributed time
+    u = random.uniform(0, 1)
+    return (-1 / float(rate)) * math.log(1 - u)
+
+
+def generate_dest(host_number, N):
+    r = random.randint(0,N-2)
+    if r >= host_number:
+        r += 1
+    return r
+
+
 # 1. Initialize
-N = input("Please enter the number of wireless hosts:")
+N = int(input("Please enter the number of wireless hosts:"))
 arrival_rate = input("Please enter the arrival rate (lambda) : ")
 sifs = 0.00005
 difs = 0.0001
 sense_interval = 0.00001
 GEL = DLL()
 host_list = []
+time = 0
 
-for i in range(int(N)):
+for i in range(N):
     my_buffer = Buffer(int(sys.maxsize))
     my_host = Host(i, my_buffer)
     host_list.append(my_host)
+    GEL.insert(time + nedt(arrival_rate), 1, i, generate_dest(i,N))
+
+GEL.print_list()
+
+
+
 
 
