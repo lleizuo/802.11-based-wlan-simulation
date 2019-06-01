@@ -1,6 +1,5 @@
 import random
 import math
-import sys
 
 
 class Event:
@@ -8,7 +7,7 @@ class Event:
         self.next = next  # reference to next event in DLL
         self.prev = prev  # reference to previous event in DLL
         self.time = time
-        self.type = type  # 1: arrival 2: departure
+        self.type = type  # 1: arrival 2: departure 3: sense
         self.src = src
         self.dest = dest
 
@@ -72,13 +71,14 @@ class DLL:
 
 
 class Packet:
-    def __init__(self, service_time):
-        self.service_time = service_time
+    def __init__(self, frame_size, src, dest):
+        self.frame_size = frame_size
+        self.src = src
+        self.dest = dest
 
 
 class Buffer:
-    def __init__(self, size):
-        self.size = size
+    def __init__(self):
         self.queue = []
 
     def insert(self, packet):
@@ -92,14 +92,20 @@ class Buffer:
 
 
 class Host:
-    def __init__(self, host_number, host_buffer):
+    def __init__(self, host_number, host_buffer, back_off):
         self.host_number = host_number
         self.host_buffer = host_buffer
+        self.back_off = back_off
+        self.delay_flag = 0
 
 
 def nedt(rate):  # negative exponentially distributed time
     u = random.uniform(0, 1)
     return (-1 / float(rate)) * math.log(1 - u)
+
+
+def data_frame_length():
+    return nedt(0.5) % 1544
 
 
 def generate_dest(host_number, N):
@@ -109,23 +115,107 @@ def generate_dest(host_number, N):
     return r
 
 
+def back_off_value(fail_times, big_t):
+    u = random.randint(0, big_t * fail_times)
+    return u
+
+
 # 1. Initialize
-N = int(input("Please enter the number of wireless hosts:"))
+N = int(input("Please enter the number of wireless hosts : "))
 arrival_rate = input("Please enter the arrival rate (lambda) : ")
+T = int(input("Please enter the T : "))
 sifs = 0.00005
 difs = 0.0001
 sense_interval = 0.00001
 GEL = DLL()
 host_list = []
 time = 0
+busy = False
+transmission_rate = 10 * 1024 * 1024
+transmitting_host = -1  # no transmitting host
+num_of_bytes = 0
+total_delay = 0
 
 for i in range(N):
-    my_buffer = Buffer(int(sys.maxsize))
-    my_host = Host(i, my_buffer)
+    my_buffer = Buffer()
+    my_host = Host(i, my_buffer, -1)  # no random back-off now
     host_list.append(my_host)
     GEL.insert(time + nedt(arrival_rate), 1, i, generate_dest(i,N))
 
-GEL.print_list()
+GEL.insert(0, 3, -1, -1)
+
+# GEL.print_list()
+
+# 2. Loop
+for i in range(1000000):
+    this_event = Event(time=GEL.head.time, type=GEL.head.type, src=GEL.head.src, dest=GEL.head.dest)
+    GEL.remove_first()
+
+    if this_event.type == 1:  # put this arrival in queue and generate new arrival
+        time = this_event.time
+        GEL.insert(time + nedt(arrival_rate), 1, this_event.src, generate_dest(this_event.src, N))
+        new_packet = Packet(data_frame_length(), this_event.src, this_event.dest)
+        host_list[this_event.src].host_buffer.insert(new_packet)
+        host_list[this_event.src].delay_flag = time
+
+    if this_event.type == 2:
+        time = this_event.time
+        busy = False
+        num_of_bytes += host_list[this_event.src].host_buffer.queue[0].frame_size
+        host_list[this_event.src].host_buffer.remove()
+        total_delay += (time - host_list[this_event.src].delay_flag)
+
+    if this_event.type == 3:  # sense event, generate next sense
+        time = this_event.time
+        GEL.insert(sense_interval + time, 3, -1, -1)
+        if busy:
+            for j in range(N):
+                if j == transmitting_host:  # no modification to the transmitting host
+                    continue
+                if len(host_list[j].host_buffer.queue) > 0:  # have a frame to transmit
+                    if host_list[j].back_off < 0:  # no back-off value
+                        host_list[j].back_off = back_off_value(1, T)
+                    else:
+                        host_list[j].back_off = host_list[j].back_off  # frozen
+                else:  # no frame to transmit
+                    host_list[j].back_off = host_list[j].back_off  # do nothing
+        else:  # sense idle
+            all_no_value = True
+            for j in range(N):
+                if host_list[j].back_off > 0:
+                    all_no_value = False
+                    host_list[j].back_off = max(0, host_list[j].back_off - 1)
+                else:  # no back-off value
+                    host_list[j].back_off = -1  # do nothing
+            for j in range(N):
+                if host_list[j].back_off == 0 or (all_no_value and len(host_list[j].host_buffer.queue) > 0):  # transmit
+                    data_time = (host_list[j].host_buffer.queue[0].frame_size * 8) / transmission_rate
+                    ack_time = (64 * 8) / transmission_rate
+                    transmit_src = host_list[j].host_buffer.queue[0].src
+                    transmit_dest = host_list[j].host_buffer.queue[0].dest
+                    GEL.insert(time + difs + data_time + sifs + ack_time, 2, transmit_src, transmit_dest)
+                    busy = True
+                    transmitting_host = j
+                    host_list[j].back_off = -1
+                    break
+
+# GEL.print_list()
+print("Throughput : "+str(num_of_bytes / time))
+print("Average network delay : "+str(total_delay/(num_of_bytes/time)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
