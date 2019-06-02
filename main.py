@@ -105,7 +105,7 @@ def nedt(rate):  # negative exponentially distributed time
 
 
 def data_frame_length():
-    return nedt(0.5) % 1544
+    return nedt(0.001) % 1544
 
 
 def generate_dest(host_number, N):
@@ -147,7 +147,7 @@ GEL.insert(0, 3, -1, -1)
 # GEL.print_list()
 
 # 2. Loop
-for i in range(1000000):
+for i in range(10000000):
     this_event = Event(time=GEL.head.time, type=GEL.head.type, src=GEL.head.src, dest=GEL.head.dest)
     GEL.remove_first()
 
