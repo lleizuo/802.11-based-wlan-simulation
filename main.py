@@ -105,7 +105,7 @@ def nedt(rate):  # negative exponentially distributed time
 
 
 def data_frame_length():
-    return nedt(0.001) % 1544
+    return int(nedt(0.000001) % 1544)
 
 
 def generate_dest(host_number, N):
