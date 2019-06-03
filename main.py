@@ -1,5 +1,12 @@
 import random
 import math
+from enum import Enum
+
+
+class States(Enum):
+    IDLE = 1
+    BUSY = 2
+    CONTENTION = 3  # when it starts to count down back-off
 
 
 class Event:
@@ -97,6 +104,7 @@ class Host:
         self.host_buffer = host_buffer
         self.back_off = back_off
         self.delay_flag = 0
+        self.fail_times = 0
 
 
 def nedt(rate):  # negative exponentially distributed time
@@ -130,11 +138,13 @@ sense_interval = 0.00001
 GEL = DLL()
 host_list = []
 time = 0
-busy = False
+state = States.IDLE
 transmission_rate = 10 * 1024 * 1024
 transmitting_host = -1  # no transmitting host
 num_of_bytes = 0
 total_delay = 0
+
+contention_collision = 0
 
 for i in range(N):
     my_buffer = Buffer()
@@ -144,10 +154,10 @@ for i in range(N):
 
 GEL.insert(0, 3, -1, -1)
 
-# GEL.print_list()
+GEL.print_list()
 
 # 2. Loop
-for i in range(10000000):
+for i in range(1000000):
     this_event = Event(time=GEL.head.time, type=GEL.head.type, src=GEL.head.src, dest=GEL.head.dest)
     GEL.remove_first()
 
@@ -160,48 +170,79 @@ for i in range(10000000):
 
     if this_event.type == 2:
         time = this_event.time
-        busy = False
+        state = States.IDLE
         num_of_bytes += host_list[this_event.src].host_buffer.queue[0].frame_size
         host_list[this_event.src].host_buffer.remove()
         total_delay += (time - host_list[this_event.src].delay_flag)
+        transmitting_host = -1
 
     if this_event.type == 3:  # sense event, generate next sense
         time = this_event.time
         GEL.insert(sense_interval + time, 3, -1, -1)
-        if busy:
+        if state == States.IDLE:
+            all_no_value = True
+            non_empty_buffer = []
+            for j in range(N):
+                if host_list[j].back_off >= 0:
+                    all_no_value = False
+                if len(host_list[j].host_buffer.queue) > 0:
+                    non_empty_buffer.append(j)
+            if all_no_value:
+                if len(non_empty_buffer) > 0:
+                    index = non_empty_buffer[0]
+                    data_time = (host_list[index].host_buffer.queue[0].frame_size * 8) / transmission_rate
+                    ack_time = (64 * 8) / transmission_rate
+                    transmit_src = host_list[index].host_buffer.queue[0].src
+                    transmit_dest = host_list[index].host_buffer.queue[0].dest
+                    GEL.insert(time + difs + data_time + sifs + ack_time, 2, transmit_src, transmit_dest)
+                    state = States.BUSY
+                    transmitting_host = index
+            else:
+                GEL.insert(time + difs, 5, -1, -1)
+                state = States.BUSY
+        elif state == States.BUSY:
             for j in range(N):
                 if j == transmitting_host:  # no modification to the transmitting host
                     continue
                 if len(host_list[j].host_buffer.queue) > 0:  # have a frame to transmit
                     if host_list[j].back_off < 0:  # no back-off value
-                        host_list[j].back_off = back_off_value(1, T)
-                    else:
-                        host_list[j].back_off = host_list[j].back_off  # frozen
-                else:  # no frame to transmit
-                    host_list[j].back_off = host_list[j].back_off  # do nothing
-        else:  # sense idle
-            all_no_value = True
+                        host_list[j].back_off = back_off_value(host_list[j].fail_times + 1, T)
+        else:
+            zero_count_host = []
+            maxsize = 0
             for j in range(N):
-                if host_list[j].back_off > 0:
-                    all_no_value = False
-                    host_list[j].back_off = max(0, host_list[j].back_off - 1)
-                else:  # no back-off value
-                    host_list[j].back_off = -1  # do nothing
-            for j in range(N):
-                if host_list[j].back_off == 0 or (all_no_value and len(host_list[j].host_buffer.queue) > 0):  # transmit
-                    data_time = (host_list[j].host_buffer.queue[0].frame_size * 8) / transmission_rate
-                    ack_time = (64 * 8) / transmission_rate
-                    transmit_src = host_list[j].host_buffer.queue[0].src
-                    transmit_dest = host_list[j].host_buffer.queue[0].dest
-                    GEL.insert(time + difs + data_time + sifs + ack_time, 2, transmit_src, transmit_dest)
-                    busy = True
-                    transmitting_host = j
-                    host_list[j].back_off = -1
-                    break
+                if len(host_list[j].host_buffer.queue) > 0:
+                    if host_list[j].back_off >= 0:
+                        host_list[j].back_off = max(0, host_list[j].back_off - 1)
+                    if host_list[j].back_off == 0:
+                        zero_count_host.append(j)
+                        maxsize = max(maxsize,host_list[j].host_buffer.queue[0].frame_size)
+            if len(zero_count_host) == 1:
+                index = zero_count_host[0]
+                data_time = (host_list[index].host_buffer.queue[0].frame_size * 8) / transmission_rate
+                ack_time = (64 * 8) / transmission_rate
+                transmit_src = host_list[index].host_buffer.queue[0].src
+                transmit_dest = host_list[index].host_buffer.queue[0].dest
+                GEL.insert(time + data_time + sifs + ack_time, 2, transmit_src, transmit_dest)
+                transmitting_host = index
+                state = States.BUSY
+                host_list[index].back_off = -1
+            if len(zero_count_host) > 1:
+                contention_collision += 1
+                GEL.insert(time + maxsize / transmission_rate, 6, -1, -1)
+                for k in zero_count_host:
+                    host_list[k].fail_times += 1
+                    host_list[k].back_off = back_off_value(host_list[k].fail_times + 1, T)
 
-# GEL.print_list()
+    if this_event.type == 5:
+        state = States.CONTENTION
+    if this_event.type == 6:
+        state = States.IDLE
+
+GEL.print_list()
 print("Throughput : "+str(num_of_bytes / time))
 print("Average network delay : "+str(total_delay/(num_of_bytes/time)))
+print(contention_collision)
 
 
 
