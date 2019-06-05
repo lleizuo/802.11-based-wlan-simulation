@@ -246,7 +246,10 @@ for i in range(1000000):
 
 GEL.print_list()
 print("Throughput : "+str(num_of_bytes / time))
-print("Average network delay : "+str(total_delay/(num_of_bytes/time)))
+if num_of_bytes == 0:
+    print("Average network delay : inf")
+else:
+    print("Average network delay : "+str(total_delay/(num_of_bytes/time)))
 print(contention_collision)
 
 
