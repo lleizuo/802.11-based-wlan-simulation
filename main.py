@@ -154,7 +154,7 @@ for i in range(N):
 
 GEL.insert(0, 3, -1, -1)
 
-GEL.print_list()
+# GEL.print_list()
 
 # 2. Loop
 for i in range(1000000):
@@ -244,7 +244,7 @@ for i in range(1000000):
     if this_event.type == 6:
         state = States.IDLE
 
-GEL.print_list()
+# GEL.print_list()
 print("Throughput : "+str(num_of_bytes / time))
 if num_of_bytes == 0:
     print("Average network delay : inf")
