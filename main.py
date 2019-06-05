@@ -250,7 +250,7 @@ if num_of_bytes == 0:
     print("Average network delay : inf")
 else:
     print("Average network delay : "+str(total_delay/(num_of_bytes/time)))
-print(contention_collision)
+print("Number of collisions : "+str(contention_collision))
 
 
 
