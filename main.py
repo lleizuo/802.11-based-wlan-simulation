@@ -175,6 +175,7 @@ for i in range(1000000):
         host_list[this_event.src].host_buffer.remove()
         total_delay += (time - host_list[this_event.src].delay_flag)
         transmitting_host = -1
+        host_list[this_event.src].fail_times = 0
 
     if this_event.type == 3:  # sense event, generate next sense
         time = this_event.time
@@ -209,10 +210,12 @@ for i in range(1000000):
                         host_list[j].back_off = back_off_value(host_list[j].fail_times + 1, T)
         else:
             zero_count_host = []
+            have_count_host = []
             maxsize = 0
             for j in range(N):
                 if len(host_list[j].host_buffer.queue) > 0:
                     if host_list[j].back_off >= 0:
+                        have_count_host.append(j)
                         host_list[j].back_off = max(0, host_list[j].back_off - 1)
                     if host_list[j].back_off == 0:
                         zero_count_host.append(j)
@@ -229,7 +232,9 @@ for i in range(1000000):
                 host_list[index].back_off = -1
             if len(zero_count_host) > 1:
                 contention_collision += 1
-                GEL.insert(time + maxsize / transmission_rate, 6, -1, -1)
+                if len(have_count_host) == len(zero_count_host):
+                    state = States.IDLE
+                # GEL.insert(time + maxsize / transmission_rate, 6, -1, -1)
                 for k in zero_count_host:
                     host_list[k].fail_times += 1
                     host_list[k].back_off = back_off_value(host_list[k].fail_times + 1, T)
